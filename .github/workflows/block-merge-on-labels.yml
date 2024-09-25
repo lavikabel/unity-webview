@@ -1,0 +1,27 @@
+name: Block Merge on Specific Labels
+
+on:
+  pull_request:
+    types: [labeled]
+
+jobs:
+  check-labels:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check for Blocked Labels
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const blockedLabels = ['do-not-merge', 'wip', 'needs-review'];
+          const prLabels = context.payload.pull_request.labels.map(label => label.name);
+
+          const intersection = prLabels.filter(label => blockedLabels.includes(label));
+          
+          if (intersection.length > 0) {
+            const blockedLabelList = intersection.join(', ');
+            throw new Error(
+              `:x: This PR contains blocked labels: ${blockedLabelList}. ` +
+              `Please remove them before merging. ` +
+              `Blocked labels: ${blockedLabels.join(', ')}.`
+            );
+          }

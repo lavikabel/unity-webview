@@ -20,11 +20,15 @@
 
 using System.Collections;
 using UnityEngine;
+#if UNITY_2018_4_OR_NEWER
+using UnityEngine.Networking;
+#endif
+using UnityEngine.UI;
 
 public class SampleWebView : MonoBehaviour
 {
     public string Url;
-    public GUIText status;
+    public Text status;
     WebViewObject webViewObject;
 
     IEnumerator Start()
@@ -47,10 +51,14 @@ public class SampleWebView : MonoBehaviour
             {
                 Debug.Log(string.Format("CallOnStarted[{0}]", msg));
             },
+            hooked: (msg) =>
+            {
+                Debug.Log(string.Format("CallOnHooked[{0}]", msg));
+            },
             ld: (msg) =>
             {
                 Debug.Log(string.Format("CallOnLoaded[{0}]", msg));
-#if UNITY_EDITOR_OSX || !UNITY_ANDROID
+#if UNITY_EDITOR_OSX || (!UNITY_ANDROID && !UNITY_WEBPLAYER && !UNITY_WEBGL)
                 // NOTE: depending on the situation, you might prefer
                 // the 'iframe' approach.
                 // cf. https://github.com/gree/unity-webview/issues/189
@@ -91,18 +99,40 @@ public class SampleWebView : MonoBehaviour
                   }
                 ");
 #endif
+#elif UNITY_WEBPLAYER || UNITY_WEBGL
+                webViewObject.EvaluateJS(
+                    "window.Unity = {" +
+                    "   call:function(msg) {" +
+                    "       parent.unityWebView.sendMessage('WebViewObject', msg)" +
+                    "   }" +
+                    "};");
 #endif
                 webViewObject.EvaluateJS(@"Unity.call('ua=' + navigator.userAgent)");
             },
             //ua: "custom user agent string",
+#if UNITY_EDITOR
+            separated: false,
+#endif
             enableWKWebView: true);
 #if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
         webViewObject.bitmapRefreshCycle = 1;
 #endif
+        // cf. https://github.com/gree/unity-webview/pull/512
+        // Added alertDialogEnabled flag to enable/disable alert/confirm/prompt dialogs. by KojiNakamaru · Pull Request #512 · gree/unity-webview
+        //webViewObject.SetAlertDialogEnabled(false);
+
+        // cf. https://github.com/gree/unity-webview/pull/550
+        // introduced SetURLPattern(..., hookPattern). by KojiNakamaru · Pull Request #550 · gree/unity-webview
+        //webViewObject.SetURLPattern("", "^https://.*youtube.com", "^https://.*google.com");
+
+        // cf. https://github.com/gree/unity-webview/pull/570
+        // Add BASIC authentication feature (Android and iOS with WKWebView only) by takeh1k0 · Pull Request #570 · gree/unity-webview
+        //webViewObject.SetBasicAuthInfo("id", "password");
+
         webViewObject.SetMargins(5, 100, 5, Screen.height / 4);
         webViewObject.SetVisibility(true);
 
-#if !UNITY_WEBPLAYER
+#if !UNITY_WEBPLAYER && !UNITY_WEBGL
         if (Url.StartsWith("http")) {
             webViewObject.LoadURL(Url.Replace(" ", "%20"));
         } else {
@@ -117,9 +147,16 @@ public class SampleWebView : MonoBehaviour
                 var dst = System.IO.Path.Combine(Application.persistentDataPath, url);
                 byte[] result = null;
                 if (src.Contains("://")) {  // for Android
+#if UNITY_2018_4_OR_NEWER
+                    // NOTE: a more complete code that utilizes UnityWebRequest can be found in https://github.com/gree/unity-webview/commit/2a07e82f760a8495aa3a77a23453f384869caba7#diff-4379160fa4c2a287f414c07eb10ee36d
+                    var unityWebRequest = UnityWebRequest.Get(src);
+                    yield return unityWebRequest.SendWebRequest();
+                    result = unityWebRequest.downloadHandler.data;
+#else
                     var www = new WWW(src);
                     yield return www;
                     result = www.bytes;
+#endif
                 } else {
                     result = System.IO.File.ReadAllBytes(src);
                 }
@@ -136,19 +173,10 @@ public class SampleWebView : MonoBehaviour
         } else {
             webViewObject.LoadURL("StreamingAssets/" + Url.Replace(" ", "%20"));
         }
-        webViewObject.EvaluateJS(
-            "parent.$(function() {" +
-            "   window.Unity = {" +
-            "       call:function(msg) {" +
-            "           parent.unityWebView.sendMessage('WebViewObject', msg)" +
-            "       }" +
-            "   };" +
-            "});");
 #endif
         yield break;
     }
 
-#if !UNITY_WEBPLAYER
     void OnGUI()
     {
         GUI.enabled = webViewObject.CanGoBack();
@@ -169,6 +197,10 @@ public class SampleWebView : MonoBehaviour
             webViewObject.SetVisibility(!webViewObject.GetVisibility());
         }
         GUI.enabled = true;
+
+        if (GUI.Button(new Rect(700, 10, 80, 80), "c")) {
+            Debug.Log(webViewObject.GetCookies(Url));
+        }
+        GUI.enabled = true;
     }
-#endif
 }
